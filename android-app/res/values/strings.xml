@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Old Phone Camera</string>
+    <string name="login_title">Configurar câmera</string>
+    <string name="login_backend_hint">URL do backend</string>
+    <string name="login_email_hint">Email</string>
+    <string name="login_password_hint">Senha</string>
+    <string name="login_device_hint">Nome desta câmera</string>
+    <string name="login_button">Entrar e registrar</string>
+    <string name="login_error_generic">Não foi possível autenticar. Verifique os dados e tente novamente.</string>
+    <string name="main_start">Iniciar</string>
+    <string name="main_stop">Parar</string>
+    <string name="main_logout">Sair</string>
+    <string name="status_idle">Aguardando transmissão</string>
+    <string name="status_streaming">Transmitindo…</string>
+    <string name="status_uploading">Enviando vídeo…</string>
+</resources>

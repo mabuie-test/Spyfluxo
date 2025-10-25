@@ -1,0 +1,20 @@
+{
+  "name": "old-phone-camera-backend",
+  "version": "1.0.0",
+  "description": "Backend para streaming de câmeras de telemóveis antigos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "http": "^0.0.1-security",
+    "mongodb": "^5.9.0",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

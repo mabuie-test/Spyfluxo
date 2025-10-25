@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Painel de Câmeras</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        display: flex;
+        height: 100vh;
+      }
+      #sidebar {
+        width: 320px;
+        border-right: 1px solid #ccc;
+        padding: 16px;
+        box-sizing: border-box;
+        overflow-y: auto;
+      }
+      #content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      #videoFrame {
+        flex: 1;
+        background: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #videoFrame img {
+        max-width: 100%;
+        max-height: 100%;
+      }
+      #map {
+        height: 40vh;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+      li {
+        margin-bottom: 8px;
+      }
+      button {
+        width: 100%;
+        padding: 8px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <h2>Dispositivos</h2>
+      <ul id="deviceList"></ul>
+    </div>
+    <div id="content">
+      <div id="videoFrame">
+        <span>Selecione um dispositivo para visualizar</span>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const deviceList = document.getElementById('deviceList');
+      const videoFrame = document.getElementById('videoFrame');
+      let selectedDevice = null;
+      const socket = io();
+      const map = L.map('map').setView([0, 0], 2);
+      const markers = new Map();
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      function createDeviceItem(device) {
+        const li = document.createElement('li');
+        const button = document.createElement('button');
+        const lastSeen = new Date(device.lastSeen).toLocaleString();
+        button.textContent = `${device.deviceId} - ${lastSeen}`;
+        button.onclick = () => selectDevice(device.deviceId);
+        li.appendChild(button);
+        return li;
+      }
+
+      async function loadDevices() {
+        const response = await fetch('/api/devices');
+        const devices = await response.json();
+        deviceList.innerHTML = '';
+        devices.forEach(device => {
+          deviceList.appendChild(createDeviceItem(device));
+          if (device.location && device.location.coordinates) {
+            const { latitude, longitude } = device.location.coordinates;
+            const key = device.deviceId;
+            const latLng = [latitude, longitude];
+            let marker = markers.get(key);
+            if (!marker) {
+              marker = L.marker(latLng).addTo(map);
+              markers.set(key, marker);
+            } else {
+              marker.setLatLng(latLng);
+            }
+            marker.bindPopup(`${device.deviceId}<br/>${new Date(device.lastSeen).toLocaleString()}`);
+          }
+        });
+      }
+
+      async function selectDevice(deviceId) {
+        selectedDevice = deviceId;
+        videoFrame.innerHTML = '<span>Carregando...</span>';
+        socket.emit('subscribe-device', deviceId);
+        const response = await fetch(`/api/frames/${deviceId}/latest`);
+        if (!response.ok) {
+          videoFrame.innerHTML = '<span>Sem frames disponíveis</span>';
+          return;
+        }
+        const data = await response.json();
+        renderFrame(data.frame);
+      }
+
+      function renderFrame(base64) {
+        videoFrame.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = `data:image/jpeg;base64,${base64}`;
+        videoFrame.appendChild(img);
+      }
+
+      socket.on('frame', payload => {
+        if (payload.deviceId === selectedDevice) {
+          renderFrame(payload.frame);
+        }
+      });
+
+      loadDevices();
+      setInterval(loadDevices, 10000);
+    </script>
+  </body>
+</html>

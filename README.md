@@ -118,9 +118,25 @@ Funcionalidades:
      -H 'Content-Type: application/json' \
      -d '{"name":"Admin","email":"admin@example.com","password":"senhaSegura"}'
    ```
-2. No painel web, faça login e gere uma câmera chamada “Sala”. Copie o `deviceId` e o `deviceKey`.
-3. No Android, informe o backend, email/senha e o nome “Sala”. O app guardará as credenciais retornadas automaticamente.
-4. Pressione **Iniciar** para começar a transmitir. O painel exibirá o vídeo com áudio e adicionará a câmera no mapa.
+2. Faça login pelo terminal para obter o JWT e reutilizá-lo nas chamadas autenticadas:
+   ```bash
+   # Login: devolve { token, user }
+   curl -X POST https://SEU_BACKEND/api/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"admin@example.com","password":"senhaSegura"}'
+
+   # Guarde o token numa variável de shell (Bash) — requer `jq` instalado:
+   JWT=$(curl -s -X POST https://SEU_BACKEND/api/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"admin@example.com","password":"senhaSegura"}' | jq -r '.token')
+
+   # Exemplo de chamada autenticada: obter os dados do utilizador logado
+   curl https://SEU_BACKEND/api/me \
+     -H "Authorization: Bearer $JWT"
+   ```
+3. No painel web, faça login e gere uma câmera chamada “Sala”. Copie o `deviceId` e o `deviceKey`.
+4. No Android, informe o backend, email/senha e o nome “Sala”. O app guardará as credenciais retornadas automaticamente.
+5. Pressione **Iniciar** para começar a transmitir. O painel exibirá o vídeo com áudio e adicionará a câmera no mapa.
 
 ---
 

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Painel de Câmeras</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: #101418;
+        color: #e7edf4;
+        display: flex;
+        height: 100vh;
+      }
+      a {
+        color: #7dc3ff;
+      }
+      #sidebar {
+        width: 360px;
+        border-right: 1px solid #1f2a35;
+        padding: 16px;
+        box-sizing: border-box;
+        overflow-y: auto;
+        background: #141a21;
+      }
+      #content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      label {
+        display: block;
+        margin-top: 12px;
+        font-size: 0.9rem;
+        color: #b3c0cc;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        margin-top: 4px;
+        border-radius: 4px;
+        border: 1px solid #27313d;
+        background: #0f1419;
+        color: #e7edf4;
+      }
+      button {
+        padding: 10px 16px;
+        border: none;
+        border-radius: 4px;
+        margin-top: 16px;
+        cursor: pointer;
+        background: #2d72d2;
+        color: white;
+        font-weight: 600;
+      }
+      button.secondary {
+        background: #1f2a35;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      #videoFrame {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        gap: 12px;
+      }
+      #videoPlayer {
+        flex: 1;
+        background: #000;
+        border-radius: 8px;
+        width: 100%;
+      }
+      #segments {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .segment-card {
+        background: #141a21;
+        border: 1px solid #1f2a35;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      #map {
+        height: 35vh;
+        border-top: 1px solid #1f2a35;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .device-item {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        margin-bottom: 8px;
+        cursor: pointer;
+        background: #10161d;
+      }
+      .device-item.active {
+        border-color: #2d72d2;
+        background: #0f1b2a;
+      }
+      .device-status {
+        font-size: 0.75rem;
+        color: #8fa6bd;
+      }
+      #registerResult {
+        background: #10161d;
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px dashed #2d72d2;
+        margin-top: 12px;
+        word-break: break-all;
+      }
+      @media (max-width: 960px) {
+        body {
+          flex-direction: column;
+        }
+        #sidebar {
+          width: 100%;
+          border-right: none;
+          border-bottom: 1px solid #1f2a35;
+          display: flex;
+          flex-direction: column;
+        }
+        #content {
+          height: calc(100vh - 340px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <div id="authPanel">
+        <h2>Acessar painel</h2>
+        <label for="backendUrl">Backend (default: mesmo host)</label>
+        <input id="backendUrl" type="url" placeholder="https://seu-backend" />
+        <label for="email">Email</label>
+        <input id="email" type="email" placeholder="voce@dominio.com" />
+        <label for="password">Senha</label>
+        <input id="password" type="password" placeholder="********" />
+        <button id="loginButton">Entrar</button>
+        <p id="loginError" class="hidden"></p>
+      </div>
+      <div id="devicePanel" class="hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <h2 style="margin: 0;">Dispositivos</h2>
+          <button id="logoutButton" class="secondary" style="margin: 0;">Sair</button>
+        </div>
+        <div id="userInfo" style="font-size: 0.85rem; color: #8fa6bd; margin-top: 4px;"></div>
+        <button id="refreshDevices">Atualizar lista</button>
+        <div id="devices"></div>
+        <hr style="border: none; border-top: 1px solid #1f2a35; margin: 16px 0;" />
+        <h3>Registrar nova câmera</h3>
+        <label for="newDeviceName">Nome da câmera</label>
+        <input id="newDeviceName" placeholder="Sala principal" />
+        <button id="registerDevice">Gerar credenciais</button>
+        <div id="registerResult" class="hidden"></div>
+      </div>
+    </div>
+    <div id="content">
+      <div id="videoFrame">
+        <h2 id="deviceTitle">Selecione uma câmera</h2>
+        <video id="videoPlayer" controls></video>
+        <div id="segmentInfo"></div>
+        <div id="segments"></div>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const state = {
+        token: null,
+        backend: '',
+        user: null,
+        devices: [],
+        selectedDeviceId: null
+      };
+
+      const elements = {
+        backendUrl: document.getElementById('backendUrl'),
+        email: document.getElementById('email'),
+        password: document.getElementById('password'),
+        loginButton: document.getElementById('loginButton'),
+        loginError: document.getElementById('loginError'),
+        authPanel: document.getElementById('authPanel'),
+        devicePanel: document.getElementById('devicePanel'),
+        logoutButton: document.getElementById('logoutButton'),
+        refreshDevices: document.getElementById('refreshDevices'),
+        devices: document.getElementById('devices'),
+        userInfo: document.getElementById('userInfo'),
+        newDeviceName: document.getElementById('newDeviceName'),
+        registerDevice: document.getElementById('registerDevice'),
+        registerResult: document.getElementById('registerResult'),
+        deviceTitle: document.getElementById('deviceTitle'),
+        videoPlayer: document.getElementById('videoPlayer'),
+        segmentInfo: document.getElementById('segmentInfo'),
+        segments: document.getElementById('segments')
+      };
+
+      const socket = io();
+      let socketAuthenticated = false;
+
+      const map = L.map('map').setView([0, 0], 2);
+      const markers = new Map();
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      function saveToken(token, backend) {
+        state.token = token;
+        state.backend = backend || window.location.origin;
+        localStorage.setItem('cameraDashboardToken', token);
+        localStorage.setItem('cameraDashboardBackend', state.backend);
+      }
+
+      function clearToken() {
+        state.token = null;
+        state.user = null;
+        state.devices = [];
+        state.selectedDeviceId = null;
+        socketAuthenticated = false;
+        localStorage.removeItem('cameraDashboardToken');
+        localStorage.removeItem('cameraDashboardBackend');
+      }
+
+      function getBackendUrl() {
+        return state.backend || window.location.origin;
+      }
+
+      async function authenticatedFetch(path, options = {}) {
+        const headers = options.headers || {};
+        if (state.token) {
+          headers.Authorization = `Bearer ${state.token}`;
+        }
+        if (!headers['Content-Type'] && options.body) {
+          headers['Content-Type'] = 'application/json';
+        }
+        options.headers = headers;
+        const response = await fetch(`${getBackendUrl()}${path}`, options);
+        if (response.status === 401) {
+          logout();
+          throw new Error('Sessão expirada');
+        }
+        return response;
+      }
+
+      function showLoginError(message) {
+        elements.loginError.textContent = message;
+        elements.loginError.classList.remove('hidden');
+      }
+
+      function hideLoginError() {
+        elements.loginError.classList.add('hidden');
+      }
+
+      async function login() {
+        hideLoginError();
+        elements.loginButton.disabled = true;
+        try {
+          const backend = elements.backendUrl.value.trim() || window.location.origin;
+          const payload = {
+            email: elements.email.value.trim(),
+            password: elements.password.value
+          };
+          const response = await fetch(`${backend}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Falha ao autenticar');
+          }
+          const data = await response.json();
+          saveToken(data.token, backend);
+          state.user = data.user;
+          elements.backendUrl.value = backend;
+          await enterDashboard();
+        } catch (error) {
+          showLoginError(error.message);
+        } finally {
+          elements.loginButton.disabled = false;
+        }
+      }
+
+      async function enterDashboard() {
+        elements.authPanel.classList.add('hidden');
+        elements.devicePanel.classList.remove('hidden');
+        elements.userInfo.textContent = state.user ? `Logado como ${state.user.name} (${state.user.email})` : '';
+        await refreshDeviceList();
+        authenticateSocket();
+      }
+
+      function logout() {
+        clearToken();
+        elements.authPanel.classList.remove('hidden');
+        elements.devicePanel.classList.add('hidden');
+        elements.devices.innerHTML = '';
+        elements.segmentInfo.innerHTML = '';
+        elements.segments.innerHTML = '';
+        elements.videoPlayer.removeAttribute('src');
+        elements.videoPlayer.load();
+        elements.deviceTitle.textContent = 'Selecione uma câmera';
+      }
+
+      async function tryRestoreSession() {
+        const storedToken = localStorage.getItem('cameraDashboardToken');
+        const storedBackend = localStorage.getItem('cameraDashboardBackend');
+        if (!storedToken) {
+          return;
+        }
+        state.token = storedToken;
+        state.backend = storedBackend || window.location.origin;
+        elements.backendUrl.value = state.backend;
+        try {
+          const response = await authenticatedFetch('/api/me');
+          if (!response.ok) {
+            throw new Error('Sessão inválida');
+          }
+          const data = await response.json();
+          state.user = data.user;
+          await enterDashboard();
+        } catch (error) {
+          logout();
+        }
+      }
+
+      function authenticateSocket() {
+        if (!state.token || socketAuthenticated) {
+          return;
+        }
+        socket.emit('authenticate', state.token);
+      }
+
+      socket.on('authenticated', () => {
+        socketAuthenticated = true;
+        if (state.selectedDeviceId) {
+          socket.emit('subscribe-device', state.selectedDeviceId);
+        }
+      });
+
+      socket.on('auth-error', message => {
+        console.warn('Erro no socket:', message);
+        socketAuthenticated = false;
+      });
+
+      socket.on('segment', payload => {
+        if (payload.deviceId === state.selectedDeviceId) {
+          loadSegments(state.selectedDeviceId);
+        }
+      });
+
+      async function refreshDeviceList() {
+        try {
+          const response = await authenticatedFetch('/api/devices');
+          if (!response.ok) {
+            throw new Error('Erro ao carregar dispositivos');
+          }
+          const data = await response.json();
+          state.devices = data.devices || [];
+          renderDeviceList();
+          updateMapMarkers();
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      function renderDeviceList() {
+        elements.devices.innerHTML = '';
+        if (!state.devices.length) {
+          elements.devices.innerHTML = '<p>Nenhum dispositivo registado.</p>';
+          return;
+        }
+        const now = Date.now();
+        state.devices.forEach(device => {
+          const item = document.createElement('div');
+          item.className = 'device-item' + (device.deviceId === state.selectedDeviceId ? ' active' : '');
+          const lastSeen = device.lastSeen ? new Date(device.lastSeen).toLocaleString() : 'Nunca';
+          const online = device.lastSeen && now - new Date(device.lastSeen).getTime() < 120000;
+          item.innerHTML = `
+            <div><strong>${device.name || device.deviceId}</strong></div>
+            <div class="device-status">${device.deviceId}</div>
+            <div class="device-status">${online ? '🟢 Online' : '⚪️ Offline'} • Último contacto: ${lastSeen}</div>
+          `;
+          item.onclick = () => selectDevice(device.deviceId);
+          elements.devices.appendChild(item);
+        });
+      }
+
+      function updateMapMarkers() {
+        const bounds = [];
+        state.devices.forEach(device => {
+          if (!device.location) {
+            return;
+          }
+          const lat = device.location.lat;
+          const lng = device.location.lng;
+          if (typeof lat !== 'number' || typeof lng !== 'number') {
+            return;
+          }
+          const key = device.deviceId;
+          const latLng = [lat, lng];
+          bounds.push(latLng);
+          let marker = markers.get(key);
+          if (!marker) {
+            marker = L.marker(latLng).addTo(map);
+            markers.set(key, marker);
+          } else {
+            marker.setLatLng(latLng);
+          }
+          marker.bindPopup(`<strong>${device.name || device.deviceId}</strong><br/>${new Date(device.lastSeen || Date.now()).toLocaleString()}`);
+        });
+        if (bounds.length) {
+          map.fitBounds(bounds, { padding: [32, 32] });
+        }
+      }
+
+      async function selectDevice(deviceId) {
+        state.selectedDeviceId = deviceId;
+        renderDeviceList();
+        const device = state.devices.find(d => d.deviceId === deviceId);
+        elements.deviceTitle.textContent = device ? `Câmera: ${device.name || device.deviceId}` : 'Câmera selecionada';
+        if (socketAuthenticated) {
+          socket.emit('subscribe-device', deviceId);
+        }
+        await loadSegments(deviceId);
+      }
+
+      function renderSegmentList(segments) {
+        elements.segments.innerHTML = '';
+        if (!segments.length) {
+          elements.segments.innerHTML = '<p>Nenhum segmento recente.</p>';
+          return;
+        }
+        segments.forEach(segment => {
+          const card = document.createElement('div');
+          card.className = 'segment-card';
+          const finished = new Date(segment.finishedAt).toLocaleString();
+          const duration = (segment.durationMs / 1000).toFixed(1);
+          const size = (segment.sizeBytes / (1024 * 1024)).toFixed(2);
+          card.innerHTML = `
+            <div><strong>${finished}</strong></div>
+            <div>Duração: ${duration}s</div>
+            <div>Tamanho: ${size} MB</div>
+            <button class="secondary">Reproduzir</button>
+          `;
+          card.querySelector('button').onclick = () => playSegment(segment);
+          elements.segments.appendChild(card);
+        });
+      }
+
+      async function loadSegments(deviceId) {
+        try {
+          const response = await authenticatedFetch(`/api/segments/${deviceId}?limit=6`);
+          if (!response.ok) {
+            throw new Error('Erro ao obter segmentos');
+          }
+          const data = await response.json();
+          const segments = data.segments || [];
+          renderSegmentList(segments);
+          if (segments.length) {
+            playSegment(segments[0]);
+          } else {
+            elements.videoPlayer.removeAttribute('src');
+            elements.videoPlayer.load();
+            elements.segmentInfo.textContent = 'Sem vídeo disponível.';
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      function playSegment(segment) {
+        const url = `data:${segment.mimeType};base64,${segment.data}`;
+        elements.videoPlayer.src = url;
+        elements.videoPlayer.load();
+        elements.videoPlayer.play().catch(() => {});
+        const finished = new Date(segment.finishedAt).toLocaleString();
+        const duration = (segment.durationMs / 1000).toFixed(1);
+        const size = (segment.sizeBytes / (1024 * 1024)).toFixed(2);
+        elements.segmentInfo.innerHTML = `Último segmento: <strong>${finished}</strong> • ${duration}s • ${size} MB`;
+      }
+
+      async function registerNewDevice() {
+        elements.registerResult.classList.add('hidden');
+        const name = elements.newDeviceName.value.trim();
+        if (!name) {
+          elements.registerResult.textContent = 'Informe um nome para gerar a chave.';
+          elements.registerResult.classList.remove('hidden');
+          return;
+        }
+        elements.registerDevice.disabled = true;
+        try {
+          const response = await authenticatedFetch('/api/devices/register', {
+            method: 'POST',
+            body: JSON.stringify({ name })
+          });
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Falha ao criar dispositivo');
+          }
+          const data = await response.json();
+          elements.registerResult.innerHTML = `
+            <strong>Device ID:</strong> ${data.deviceId}<br/>
+            <strong>Device Key:</strong> ${data.deviceKey}<br/>
+            <small>Guarde estas credenciais no aplicativo Android.</small>
+          `;
+          elements.registerResult.classList.remove('hidden');
+          elements.newDeviceName.value = '';
+          await refreshDeviceList();
+        } catch (error) {
+          elements.registerResult.textContent = error.message;
+          elements.registerResult.classList.remove('hidden');
+        } finally {
+          elements.registerDevice.disabled = false;
+        }
+      }
+
+      elements.loginButton.addEventListener('click', event => {
+        event.preventDefault();
+        login();
+      });
+
+      elements.logoutButton.addEventListener('click', () => {
+        logout();
+      });
+
+      elements.refreshDevices.addEventListener('click', () => {
+        refreshDeviceList();
+      });
+
+      elements.registerDevice.addEventListener('click', () => {
+        registerNewDevice();
+      });
+
+      window.addEventListener('DOMContentLoaded', () => {
+        tryRestoreSession();
+      });
+    </script>
+  </body>
+</html>
